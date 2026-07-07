@@ -16,6 +16,11 @@
   .toggle { display: flex; align-items: center; gap: 8px; }
   .toggle input { width: 15px; height: 15px; }
   .toggle label { font-size: 12px; color: #ddd; }
+  .shortcut { margin-top: 10px; }
+  #shortcutBtn { width: 100%; padding: 7px 9px; background: #2a2a2a; border: 1px solid #444; color: #fff;
+    border-radius: 4px; font-size: 12px; font-family: monospace; cursor: pointer; text-align: left; }
+  #shortcutBtn.recording { border-color: #3a5ccc; color: #9ab; }
+  #resetShortcut { font-size: 10px; color: #6a8; cursor: pointer; margin-top: 4px; display: inline-block; }
 </style>
 </head>
 <body>
@@ -27,7 +32,14 @@
   </div>
   <div class="caption">Applies to all sites. When off, the palette shows only routes you've visited.</div>
 
-  <div class="section">
+  <div class="shortcut">
+    <h2>Open shortcut</h2>
+    <button id="shortcutBtn" type="button"></button>
+    <div class="caption">Click, then press the key combo. Opens the route palette on any site.</div>
+    <span id="resetShortcut">Reset to default (Ctrl / ⌘ + K)</span>
+  </div>
+
+  <div class="section" id="paramsSection">
     <h2>Route params</h2>
     <div class="origin" id="origin"></div>
     <div id="content"></div>

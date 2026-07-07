@@ -275,7 +275,29 @@
   }
 
   var CACHE_KEY = 'routecache::' + location.origin;
-  var AUTO_DISCOVER_KEY = 'config::autoDiscover'; // global (all sites), default on
+  var AUTO_DISCOVER_KEY = 'config::autoDiscover'; // global (all sites), default off
+  var SHORTCUT_KEY = 'config::shortcut';          // global; { ctrl, meta, alt, shift, key } | unset
+
+  // In-memory copy of the configured shortcut so keydown matching stays synchronous. Kept in
+  // sync via chrome.storage.onChanged so a change in the popup applies without a page reload.
+  // null = use the built-in default matcher (Ctrl OR Cmd + K), cross-platform.
+  var currentShortcut = null;
+  chrome.storage.local.get([SHORTCUT_KEY], function (r) { currentShortcut = r[SHORTCUT_KEY] || null; });
+  chrome.storage.onChanged.addListener(function (changes, area) {
+    if (area === 'local' && changes[SHORTCUT_KEY]) currentShortcut = changes[SHORTCUT_KEY].newValue || null;
+  });
+
+  function matchesShortcut(e) {
+    var key = (e.key || '').toLowerCase();
+    if (!currentShortcut) {
+      // Default: Ctrl+K on Win/Linux, Cmd+K on Mac, no other modifiers.
+      return key === 'k' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+    }
+    var sc = currentShortcut;
+    return key === (sc.key || '').toLowerCase()
+      && !!e.ctrlKey === !!sc.ctrl && !!e.metaKey === !!sc.meta
+      && !!e.altKey === !!sc.alt && !!e.shiftKey === !!sc.shift;
+  }
 
   function getStoredRoutes() {
     return new Promise(function (resolve) {
@@ -692,8 +714,7 @@
   }
 
   function onGlobalKeydown(e) {
-    var isToggle = (e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
-    if (!isToggle || isPaletteOpen()) return;
+    if (isPaletteOpen() || !matchesShortcut(e)) return;
     if (isEditable(document.activeElement)) return;
     e.preventDefault();
     e.stopPropagation();

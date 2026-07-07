@@ -275,12 +275,21 @@
   }
 
   var CACHE_KEY = 'routecache::' + location.origin;
+  var AUTO_DISCOVER_KEY = 'config::autoDiscover'; // global (all sites), default on
 
   function getStoredRoutes() {
     return new Promise(function (resolve) {
       chrome.storage.local.get([CACHE_KEY], function (r) {
         var c = r && r[CACHE_KEY];
         resolve((c && c.routes) || []);
+      });
+    });
+  }
+
+  function isAutoDiscoverOn() {
+    return new Promise(function (resolve) {
+      chrome.storage.local.get([AUTO_DISCOVER_KEY], function (r) {
+        resolve(r[AUTO_DISCOVER_KEY] === true); // default OFF when unset
       });
     });
   }
@@ -317,7 +326,9 @@
       return routes;
     });
   }
-  getRoutes(); // eager scan at document_idle so results are ready by first Ctrl+K
+  // Eager scan at document_idle so results are ready by first Ctrl+K -- but only if
+  // auto-discovery is enabled, so turning it off also stops the bundle fetching/parsing work.
+  isAutoDiscoverOn().then(function (on) { if (on) getRoutes(); });
 
   // ============================================================================
   // Passive visit tracking
@@ -333,25 +344,41 @@
   var VISITED_CAP = 2000;
   var lastRecorded = null;
 
+  // Visited store is a { path: visitCount } map, so routes can be ranked by how often they're
+  // visited. Migrates the older array-of-paths format (each becomes count 1) transparently.
+  function normalizeCounts(v) {
+    var c = {};
+    if (Array.isArray(v)) {
+      v.forEach(function (p) { c[p] = 1; });
+    } else if (v && typeof v === 'object') {
+      Object.keys(v).forEach(function (k) { c[k] = typeof v[k] === 'number' ? v[k] : 1; });
+    }
+    return c;
+  }
+
   function recordVisit() {
     var p = RE.normalizeRoutePath(location.pathname);
-    if (!p || p === lastRecorded) return;
+    if (!p || p === lastRecorded) return; // the guard stops the 1s poll double-counting one stay
     lastRecorded = p;
     chrome.storage.local.get([VISITED_KEY], function (r) {
-      var arr = (r && r[VISITED_KEY]) || [];
-      if (arr.indexOf(p) !== -1) return;
-      arr.push(p);
-      if (arr.length > VISITED_CAP) arr = arr.slice(-VISITED_CAP);
-      var o = {}; o[VISITED_KEY] = arr;
+      var counts = normalizeCounts(r && r[VISITED_KEY]);
+      counts[p] = (counts[p] || 0) + 1;
+      var keys = Object.keys(counts);
+      if (keys.length > VISITED_CAP) { // keep the most-visited when capping
+        keys.sort(function (a, b) { return counts[b] - counts[a]; });
+        var kept = {};
+        keys.slice(0, VISITED_CAP).forEach(function (k) { kept[k] = counts[k]; });
+        counts = kept;
+      }
+      var o = {}; o[VISITED_KEY] = counts;
       chrome.storage.local.set(o);
     });
   }
 
-  function getVisited() {
+  function getVisitCounts() {
     return new Promise(function (resolve) {
       chrome.storage.local.get([VISITED_KEY], function (r) {
-        var arr = (r && r[VISITED_KEY]) || [];
-        resolve(arr.map(function (p) { return { path: p, params: RE.extractParams(p), visited: true }; }));
+        resolve(normalizeCounts(r && r[VISITED_KEY]));
       });
     });
   }
@@ -368,21 +395,39 @@
 
   // What the palette shows: the union of everything we know about this origin --
   //   live scan (this page)  ∪  persisted discovered (accumulated over past visits)  ∪  visited.
-  // Reading the persisted set too means the full discovered list always shows even if the current
-  // page's live scan is weaker. Visited-only paths are tagged so they're distinguishable.
+  // Ranked by visit count (most-visited first), then alphabetically. Reading the persisted set
+  // too means the full discovered list always shows even if the current page's live scan is
+  // weaker. Visited-only paths are tagged so they're distinguishable.
+  function rankByVisits(routes, counts) {
+    routes.forEach(function (r) { r.count = counts[r.path] || 0; });
+    return routes.sort(function (a, b) {
+      return (b.count - a.count) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    });
+  }
+
   function getMergedRoutes() {
-    return Promise.all([getRoutesForOpen(), getStoredRoutes(), getVisited()]).then(function (parts) {
-      var byPath = new Map();
-      function addDiscovered(r) {
-        if (!byPath.has(r.path)) byPath.set(r.path, { path: r.path, params: r.params || RE.extractParams(r.path) });
+    return Promise.all([isAutoDiscoverOn(), getVisitCounts()]).then(function (cfg) {
+      var auto = cfg[0], counts = cfg[1];
+
+      // Auto-discovery off: show only the visited-routes store, and skip all scanning entirely.
+      if (!auto) {
+        var visitedOnly = Object.keys(counts).map(function (p) {
+          return { path: p, params: RE.extractParams(p), visited: true };
+        });
+        return rankByVisits(visitedOnly, counts);
       }
-      parts[0].forEach(addDiscovered);  // live scan
-      parts[1].forEach(addDiscovered);  // persisted discovered
-      parts[2].forEach(function (r) {   // visited-only
-        if (!byPath.has(r.path)) byPath.set(r.path, { path: r.path, params: r.params, visited: true });
-      });
-      return Array.from(byPath.values()).sort(function (a, b) {
-        return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+
+      return Promise.all([getRoutesForOpen(), getStoredRoutes()]).then(function (parts) {
+        var byPath = new Map();
+        function addDiscovered(r) {
+          if (!byPath.has(r.path)) byPath.set(r.path, { path: r.path, params: r.params || RE.extractParams(r.path) });
+        }
+        parts[0].forEach(addDiscovered);  // live scan
+        parts[1].forEach(addDiscovered);  // persisted discovered
+        Object.keys(counts).forEach(function (p) {  // visited-only paths not in discovered
+          if (!byPath.has(p)) byPath.set(p, { path: p, params: RE.extractParams(p), visited: true });
+        });
+        return rankByVisits(Array.from(byPath.values()), counts);
       });
     });
   }
@@ -518,7 +563,7 @@
       meta.style.color = '#888';
       var bits = [];
       if (r.params.length) bits.push(r.params.map(function (p) { return ':' + p; }).join(' '));
-      if (r.visited) bits.push('visited');
+      if (r.visited) bits.push('visited'); // Update the text to reflect the number of visits
       meta.textContent = bits.join('  ');
       if (bits.length) li.appendChild(meta);
       li.addEventListener('mousedown', function (e) { e.preventDefault(); selectRoute(r); });
@@ -594,7 +639,18 @@
   }
 
   function navigateFinal(resolvedPath) {
-    location.href = '/' + resolvedPath;
+    var url = '/' + resolvedPath;
+    // Client-side navigation, no full reload: push the URL and fire popstate, which Angular's
+    // Router (and most SPA routers) listen for. Content scripts share the page's window.history
+    // and window event target, so this drives the app's in-place routing. Fall back to a real
+    // navigation only if the History API is unavailable or throws (e.g. a cross-document URL).
+    try {
+      history.pushState({}, '', url);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    } catch (e) {
+      location.href = url;
+    }
+    closePalette();
   }
 
   function resolveParamsAndNavigate(route) {

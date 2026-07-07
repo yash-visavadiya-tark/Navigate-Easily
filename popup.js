@@ -1,11 +1,23 @@
 (function () {
   'use strict';
 
+  var AUTO_DISCOVER_KEY = 'config::autoDiscover'; // global (all sites), default on
+
   function heuristicDefault(paramName) {
     var numeric = /^(id|count|page|num|number|qty|quantity)$/i.test(paramName)
       || /(id|count|num|number)$/i.test(paramName);
     return numeric ? '0' : 'test';
   }
+
+  // Global auto-discovery toggle.
+  var autoToggle = document.getElementById('autoDiscover');
+  chrome.storage.local.get([AUTO_DISCOVER_KEY], function (r) {
+    autoToggle.checked = r[AUTO_DISCOVER_KEY] === true; // default OFF when unset
+  });
+  autoToggle.addEventListener('change', function () {
+    var o = {}; o[AUTO_DISCOVER_KEY] = autoToggle.checked;
+    chrome.storage.local.set(o);
+  });
 
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
     var tab = tabs && tabs[0];

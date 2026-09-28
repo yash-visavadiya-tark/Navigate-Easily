@@ -518,9 +518,15 @@
       '.ne-input{border:none;outline:none;padding:14px 16px;font-size:15px;background:#2a2a2a;color:#fff;}' +
       '.ne-count{padding:4px 16px;font-size:11px;color:#777;background:#242424;}' +
       '.ne-list{list-style:none;margin:0;padding:6px;overflow-y:auto;}' +
-      '.ne-item{padding:8px 10px;border-radius:5px;cursor:pointer;font-size:13px;font-family:monospace;' +
-      'display:flex;justify-content:space-between;}' +
+      '.ne-item{padding:8px 10px;border-radius:5px;cursor:pointer;font-size:13px;' +
+      'display:flex;justify-content:space-between;align-items:center;gap:12px;}' +
       '.ne-item.ne-selected{background:#3a5ccc;color:#fff;}' +
+      '.ne-main{display:flex;flex-direction:column;min-width:0;}' +
+      '.ne-main span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+      '.ne-path{font-family:monospace;}' +
+      '.ne-sub{font-size:11px;color:#888;margin-top:2px;}' +
+      '.ne-selected .ne-sub{color:#cdd6f7;}' +
+      '.ne-meta{font-family:monospace;color:#888;flex-shrink:0;}' +
       '.ne-empty,.ne-hint{padding:14px 16px;font-size:13px;color:#999;}' +
       '.ne-params{padding:10px 16px;}' +
       '.ne-param-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}' +
@@ -534,7 +540,7 @@
     palette.className = 'ne-palette';
     var input = document.createElement('input');
     input.className = 'ne-input';
-    input.placeholder = 'Type to filter routes…';
+    input.placeholder = 'Search by page title or path…';
     var count = document.createElement('div');
     count.className = 'ne-count';
     var list = document.createElement('ul');
@@ -589,8 +595,13 @@
   }
 
   function renderList(filterText) {
-    var q = (filterText || '').toLowerCase();
-    filtered = allRoutes.filter(function (r) { return r.path.toLowerCase().indexOf(q) !== -1; });
+    // Every space-separated word must appear in the title or the displayed path, in any order,
+    // so "order edit" finds a page titled "Edit Order".
+    var words = (filterText || '').toLowerCase().split(/\s+/).filter(Boolean);
+    filtered = allRoutes.filter(function (r) {
+      var haystack = ((r.title || '') + ' /' + r.path).toLowerCase();
+      return words.every(function (w) { return haystack.indexOf(w) !== -1; });
+    });
     selectedIndex = 0;
     els.list.innerHTML = '';
     els.count.textContent = filtered.length + ' / ' + allRoutes.length + ' routes';
@@ -610,11 +621,20 @@
     filtered.forEach(function (r, i) {
       var li = document.createElement('li');
       li.className = 'ne-item' + (i === selectedIndex ? ' ne-selected' : '');
+      var main = document.createElement('div');
+      main.className = 'ne-main';
+      if (r.title) {
+        var titleSpan = document.createElement('span');
+        titleSpan.textContent = r.title;
+        main.appendChild(titleSpan);
+      }
       var pathSpan = document.createElement('span');
+      pathSpan.className = 'ne-path' + (r.title ? ' ne-sub' : '');
       pathSpan.textContent = '/' + r.path;
-      li.appendChild(pathSpan);
+      main.appendChild(pathSpan);
+      li.appendChild(main);
       var meta = document.createElement('span');
-      meta.style.color = '#888';
+      meta.className = 'ne-meta';
       var bits = [];
       if (r.params.length) bits.push(r.params.map(function (p) { return ':' + p; }).join(' '));
       if (r.visited) bits.push('visited'); // Update the text to reflect the number of visits

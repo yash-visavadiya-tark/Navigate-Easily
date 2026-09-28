@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Navigate Easily",
-  "version": "2.0.0",
-  "description": "Ctrl+K route palette for local Angular apps",
+  "version": "1.1.0",
+  "description": "Ctrl+K palette to search and jump to any page of a web app by title or path, with deep route discovery for Angular apps.",
   "permissions": ["storage", "activeTab"],
   "action": {
     "default_popup": "popup.html",

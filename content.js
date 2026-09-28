@@ -365,42 +365,69 @@
   var VISITED_KEY = 'visited::' + location.origin;
   var VISITED_CAP = 2000;
   var lastRecorded = null;
+  var lastTitle = null;
 
-  // Visited store is a { path: visitCount } map, so routes can be ranked by how often they're
-  // visited. Migrates the older array-of-paths format (each becomes count 1) transparently.
-  function normalizeCounts(v) {
-    var c = {};
+  // Visited store is a { path: { count, title } } map, so routes can be ranked by how often
+  // they're visited and searched by their human-readable tab title. Migrates the older formats
+  // (array of paths, then { path: count }) transparently.
+  function normalizeVisits(v) {
+    var out = {};
     if (Array.isArray(v)) {
-      v.forEach(function (p) { c[p] = 1; });
+      v.forEach(function (p) { out[p] = { count: 1 }; });
     } else if (v && typeof v === 'object') {
-      Object.keys(v).forEach(function (k) { c[k] = typeof v[k] === 'number' ? v[k] : 1; });
+      Object.keys(v).forEach(function (k) {
+        var e = v[k];
+        if (typeof e === 'number') out[k] = { count: e };
+        else if (e && typeof e === 'object') out[k] = { count: e.count || 1, title: e.title };
+        else out[k] = { count: 1 };
+      });
     }
-    return c;
+    return out;
+  }
+
+  function updateVisits(mutate) {
+    chrome.storage.local.get([VISITED_KEY], function (r) {
+      var visits = normalizeVisits(r && r[VISITED_KEY]);
+      mutate(visits);
+      var o = {}; o[VISITED_KEY] = visits;
+      chrome.storage.local.set(o);
+    });
   }
 
   function recordVisit() {
     var p = RE.normalizeRoutePath(location.pathname);
     if (!p || p === lastRecorded) return; // the guard stops the 1s poll double-counting one stay
     lastRecorded = p;
-    chrome.storage.local.get([VISITED_KEY], function (r) {
-      var counts = normalizeCounts(r && r[VISITED_KEY]);
-      counts[p] = (counts[p] || 0) + 1;
-      var keys = Object.keys(counts);
+    lastTitle = null;
+    updateVisits(function (visits) {
+      visits[p] = { count: ((visits[p] && visits[p].count) || 0) + 1, title: visits[p] && visits[p].title };
+      var keys = Object.keys(visits);
       if (keys.length > VISITED_CAP) { // keep the most-visited when capping
-        keys.sort(function (a, b) { return counts[b] - counts[a]; });
-        var kept = {};
-        keys.slice(0, VISITED_CAP).forEach(function (k) { kept[k] = counts[k]; });
-        counts = kept;
+        keys.sort(function (a, b) { return visits[b].count - visits[a].count; });
+        keys.slice(VISITED_CAP).forEach(function (k) { delete visits[k]; });
       }
-      var o = {}; o[VISITED_KEY] = counts;
-      chrome.storage.local.set(o);
     });
   }
 
-  function getVisitCounts() {
+  // SPAs change the URL first and set the title only once the route resolves, so the title is
+  // read on the poll ticks after arriving (not at navigation time, when it's usually still the
+  // previous page's) and rewritten whenever it changes -- the last title seen for a path wins.
+  // ponytail: leaving a page before its title settles can keep the previous page's title until
+  // the next visit; add a settle delay if that shows up in practice.
+  function recordTitle() {
+    var t = document.title.trim();
+    if (!lastRecorded || !t || t === lastTitle) return;
+    lastTitle = t;
+    var p = lastRecorded;
+    updateVisits(function (visits) {
+      if (visits[p]) visits[p].title = t;
+    });
+  }
+
+  function getVisits() {
     return new Promise(function (resolve) {
       chrome.storage.local.get([VISITED_KEY], function (r) {
-        resolve(normalizeCounts(r && r[VISITED_KEY]));
+        resolve(normalizeVisits(r && r[VISITED_KEY]));
       });
     });
   }
@@ -411,7 +438,8 @@
     window.addEventListener('hashchange', recordVisit);
     // SPA pushState navigations fire no event, so poll for URL changes -- cheap, once a second.
     setInterval(function () {
-      if (location.pathname !== lastRecorded) recordVisit();
+      if (RE.normalizeRoutePath(location.pathname) !== lastRecorded) recordVisit();
+      else recordTitle();
     }, 1000);
   }
 
@@ -420,23 +448,27 @@
   // Ranked by visit count (most-visited first), then alphabetically. Reading the persisted set
   // too means the full discovered list always shows even if the current page's live scan is
   // weaker. Visited-only paths are tagged so they're distinguishable.
-  function rankByVisits(routes, counts) {
-    routes.forEach(function (r) { r.count = counts[r.path] || 0; });
+  function annotateAndRank(routes, visits) {
+    routes.forEach(function (r) {
+      var v = visits[r.path];
+      r.count = v ? v.count : 0;
+      r.title = v && v.title;
+    });
     return routes.sort(function (a, b) {
       return (b.count - a.count) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
     });
   }
 
   function getMergedRoutes() {
-    return Promise.all([isAutoDiscoverOn(), getVisitCounts()]).then(function (cfg) {
-      var auto = cfg[0], counts = cfg[1];
+    return Promise.all([isAutoDiscoverOn(), getVisits()]).then(function (cfg) {
+      var auto = cfg[0], visits = cfg[1];
 
       // Auto-discovery off: show only the visited-routes store, and skip all scanning entirely.
       if (!auto) {
-        var visitedOnly = Object.keys(counts).map(function (p) {
+        var visitedOnly = Object.keys(visits).map(function (p) {
           return { path: p, params: RE.extractParams(p), visited: true };
         });
-        return rankByVisits(visitedOnly, counts);
+        return annotateAndRank(visitedOnly, visits);
       }
 
       return Promise.all([getRoutesForOpen(), getStoredRoutes()]).then(function (parts) {
@@ -446,10 +478,10 @@
         }
         parts[0].forEach(addDiscovered);  // live scan
         parts[1].forEach(addDiscovered);  // persisted discovered
-        Object.keys(counts).forEach(function (p) {  // visited-only paths not in discovered
+        Object.keys(visits).forEach(function (p) {  // visited-only paths not in discovered
           if (!byPath.has(p)) byPath.set(p, { path: p, params: RE.extractParams(p), visited: true });
         });
-        return rankByVisits(Array.from(byPath.values()), counts);
+        return annotateAndRank(Array.from(byPath.values()), visits);
       });
     });
   }
@@ -486,9 +518,15 @@
       '.ne-input{border:none;outline:none;padding:14px 16px;font-size:15px;background:#2a2a2a;color:#fff;}' +
       '.ne-count{padding:4px 16px;font-size:11px;color:#777;background:#242424;}' +
       '.ne-list{list-style:none;margin:0;padding:6px;overflow-y:auto;}' +
-      '.ne-item{padding:8px 10px;border-radius:5px;cursor:pointer;font-size:13px;font-family:monospace;' +
-      'display:flex;justify-content:space-between;}' +
+      '.ne-item{padding:8px 10px;border-radius:5px;cursor:pointer;font-size:13px;' +
+      'display:flex;justify-content:space-between;align-items:center;gap:12px;}' +
       '.ne-item.ne-selected{background:#3a5ccc;color:#fff;}' +
+      '.ne-main{display:flex;flex-direction:column;min-width:0;}' +
+      '.ne-main span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+      '.ne-path{font-family:monospace;}' +
+      '.ne-sub{font-size:11px;color:#888;margin-top:2px;}' +
+      '.ne-selected .ne-sub{color:#cdd6f7;}' +
+      '.ne-meta{font-family:monospace;color:#888;flex-shrink:0;}' +
       '.ne-empty,.ne-hint{padding:14px 16px;font-size:13px;color:#999;}' +
       '.ne-params{padding:10px 16px;}' +
       '.ne-param-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}' +
@@ -502,7 +540,7 @@
     palette.className = 'ne-palette';
     var input = document.createElement('input');
     input.className = 'ne-input';
-    input.placeholder = 'Type to filter routes…';
+    input.placeholder = 'Search by page title or path…';
     var count = document.createElement('div');
     count.className = 'ne-count';
     var list = document.createElement('ul');
@@ -557,8 +595,13 @@
   }
 
   function renderList(filterText) {
-    var q = (filterText || '').toLowerCase();
-    filtered = allRoutes.filter(function (r) { return r.path.toLowerCase().indexOf(q) !== -1; });
+    // Every space-separated word must appear in the title or the displayed path, in any order,
+    // so "order edit" finds a page titled "Edit Order".
+    var words = (filterText || '').toLowerCase().split(/\s+/).filter(Boolean);
+    filtered = allRoutes.filter(function (r) {
+      var haystack = ((r.title || '') + ' /' + r.path).toLowerCase();
+      return words.every(function (w) { return haystack.indexOf(w) !== -1; });
+    });
     selectedIndex = 0;
     els.list.innerHTML = '';
     els.count.textContent = filtered.length + ' / ' + allRoutes.length + ' routes';
@@ -578,11 +621,20 @@
     filtered.forEach(function (r, i) {
       var li = document.createElement('li');
       li.className = 'ne-item' + (i === selectedIndex ? ' ne-selected' : '');
+      var main = document.createElement('div');
+      main.className = 'ne-main';
+      if (r.title) {
+        var titleSpan = document.createElement('span');
+        titleSpan.textContent = r.title;
+        main.appendChild(titleSpan);
+      }
       var pathSpan = document.createElement('span');
+      pathSpan.className = 'ne-path' + (r.title ? ' ne-sub' : '');
       pathSpan.textContent = '/' + r.path;
-      li.appendChild(pathSpan);
+      main.appendChild(pathSpan);
+      li.appendChild(main);
       var meta = document.createElement('span');
-      meta.style.color = '#888';
+      meta.className = 'ne-meta';
       var bits = [];
       if (r.params.length) bits.push(r.params.map(function (p) { return ':' + p; }).join(' '));
       if (r.visited) bits.push('visited'); // Update the text to reflect the number of visits

@@ -105,7 +105,7 @@
       var content = document.getElementById('content');
 
       if (!cache || !cache.routes || !cache.routes.length) {
-        content.innerHTML = '<div class="empty">No routes discovered yet -- open the app and press Ctrl+K first.</div>';
+        content.innerHTML = '<div class="empty">No routes discovered yet -- open the app and press the open shortcut first.</div>';
         return;
       }
 

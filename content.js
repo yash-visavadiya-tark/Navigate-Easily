@@ -385,7 +385,15 @@
     return out;
   }
 
+  // Reloading or updating the extension orphans the copy of this script already running in open
+  // tabs: chrome.runtime.id becomes undefined and every chrome.* call throws until the page is
+  // refreshed. Checked before touching storage so a stale tab stays quiet instead of erroring.
+  function extensionConnected() {
+    return !!chrome.runtime.id;
+  }
+
   function updateVisits(mutate) {
+    if (!extensionConnected()) return;
     chrome.storage.local.get([VISITED_KEY], function (r) {
       var visits = normalizeVisits(r && r[VISITED_KEY]);
       mutate(visits);
@@ -580,6 +588,11 @@
     if (isPaletteOpen()) return;
     buildHost();
     mode = 'list';
+    if (!extensionConnected()) {
+      els.count.textContent = 'Navigate Easily was reloaded or updated. Refresh this page to use it.';
+      els.input.focus(); // so Esc still closes it
+      return;
+    }
     els.count.textContent = 'Scanning…';
     getMergedRoutes().then(function (routes) {
       allRoutes = routes;
@@ -714,17 +727,19 @@
 
   function navigateFinal(resolvedPath) {
     var url = '/' + resolvedPath;
-    // Client-side navigation, no full reload: push the URL and fire popstate, which Angular's
-    // Router (and most SPA routers) listen for. Content scripts share the page's window.history
-    // and window event target, so this drives the app's in-place routing. Fall back to a real
-    // navigation only if the History API is unavailable or throws (e.g. a cross-document URL).
-    try {
+    closePalette();
+    // In-place navigation (push the URL, fire popstate) only works when a client-side router is
+    // listening; everywhere else it changes the address bar and leaves the page as is, without
+    // any error to detect. So only do it on a bootstrapped Angular app, whose Router re-syncs to
+    // the URL on popstate, and load the page normally on every other site.
+    // ponytail: other SPA routers (React Router, Vue) also handle popstate; add their detection
+    // here if the full reload on those apps becomes a nuisance.
+    if (document.querySelector('[ng-version]')) {
       history.pushState({}, '', url);
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-    } catch (e) {
-      location.href = url;
+    } else {
+      location.assign(url);
     }
-    closePalette();
   }
 
   function resolveParamsAndNavigate(route) {

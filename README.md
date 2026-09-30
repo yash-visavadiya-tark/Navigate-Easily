@@ -21,7 +21,7 @@ After pulling new changes, click the reload icon on the extension's card in `chr
 - Use **↑ / ↓** and **Enter** to go, or click a row. Press **Esc** to close.
 - Routes with parameters (e.g. `/orders/:id`) open a small form to fill in the values before navigating.
 
-Navigation happens in place, without a full page reload.
+On Angular apps, navigation happens in place, without a full page reload. On other sites, the page loads normally.
 
 ## Settings (toolbar popup)
 
@@ -43,7 +43,7 @@ Everything is stored locally in `chrome.storage.local` and never leaves your bro
 
 ## Known limitations
 
-- **Sites that aren't single-page apps:** navigation changes the URL in place and relies on the app's router to react. On server-rendered sites the address bar can change while the page stays the same.
+- **React, Vue and other single-page apps** get a full page load, not the instant in-place jump that Angular apps get.
 - **Hash routing** (`/#/orders`) isn't supported.
 - **Apps served under a sub-path** (e.g. `/myapp/`) navigate to the wrong URL for auto-discovered routes.
 - **Fast navigation:** if you leave a page within about a second, it can keep the previous page's title until your next visit.

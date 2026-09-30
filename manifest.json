@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Navigate Easily",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Ctrl+K palette to search and jump to any page of a web app by title or path, with deep route discovery for Angular apps.",
   "permissions": ["storage", "activeTab"],
   "action": {

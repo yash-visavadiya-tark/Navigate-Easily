@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 — 2026-09-30
+
+### Fixed
+- Choosing a page on a site that isn't an Angular app changed the address bar but didn't open the page. Those sites now load the page normally. Angular apps still navigate in place.
+
 ## 1.1.0 — 2026-09-28
 
 ### Added

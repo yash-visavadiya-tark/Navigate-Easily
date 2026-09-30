@@ -4,6 +4,7 @@
 
 ### Fixed
 - Choosing a page on a site that isn't an Angular app changed the address bar but didn't open the page. Those sites now load the page normally. Angular apps still navigate in place.
+- Tabs left open across an extension reload or update threw "Extension context invalidated" every second, and the palette failed to load. They now stay quiet, and the shortcut shows a message asking you to refresh the page.
 
 ## 1.1.0 — 2026-09-28
 

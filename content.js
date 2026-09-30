@@ -385,7 +385,15 @@
     return out;
   }
 
+  // Reloading or updating the extension orphans the copy of this script already running in open
+  // tabs: chrome.runtime.id becomes undefined and every chrome.* call throws until the page is
+  // refreshed. Checked before touching storage so a stale tab stays quiet instead of erroring.
+  function extensionConnected() {
+    return !!chrome.runtime.id;
+  }
+
   function updateVisits(mutate) {
+    if (!extensionConnected()) return;
     chrome.storage.local.get([VISITED_KEY], function (r) {
       var visits = normalizeVisits(r && r[VISITED_KEY]);
       mutate(visits);
@@ -580,6 +588,11 @@
     if (isPaletteOpen()) return;
     buildHost();
     mode = 'list';
+    if (!extensionConnected()) {
+      els.count.textContent = 'Navigate Easily was reloaded or updated. Refresh this page to use it.';
+      els.input.focus(); // so Esc still closes it
+      return;
+    }
     els.count.textContent = 'Scanning…';
     getMergedRoutes().then(function (routes) {
       allRoutes = routes;

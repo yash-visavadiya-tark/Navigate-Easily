@@ -3,47 +3,91 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body { width: 320px; font-family: system-ui, sans-serif; margin: 0; padding: 12px; background: #1e1e1e; color: #eee; }
-  h1 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
-  h2 { font-size: 12px; margin: 0 0 4px; font-weight: 600; color: #ddd; }
-  .origin { font-family: monospace; font-size: 11px; color: #9ab; margin-bottom: 10px; word-break: break-all; }
-  .empty { font-size: 12px; color: #999; }
-  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .row label { font-family: monospace; font-size: 12px; color: #9ab; min-width: 90px; }
-  .row input { flex: 1; padding: 5px 7px; background: #2a2a2a; border: 1px solid #444; color: #fff; border-radius: 4px; }
-  .caption { font-size: 10px; color: #777; margin-top: -4px; margin-bottom: 10px; }
-  .section { border-top: 1px solid #333; padding-top: 10px; margin-top: 10px; }
-  .toggle { display: flex; align-items: center; gap: 8px; }
-  .toggle input { width: 15px; height: 15px; }
-  .toggle label { font-size: 12px; color: #ddd; }
-  .shortcut { margin-top: 10px; }
-  #shortcutBtn { width: 100%; padding: 7px 9px; background: #2a2a2a; border: 1px solid #444; color: #fff;
-    border-radius: 4px; font-size: 12px; font-family: monospace; cursor: pointer; text-align: left; }
-  #shortcutBtn.recording { border-color: #3a5ccc; color: #9ab; }
-  #resetShortcut { font-size: 10px; color: #6a8; cursor: pointer; margin-top: 4px; display: inline-block; }
+  /* Same dark surface and accent as the in-page palette, so the two read as one product. */
+  :root {
+    --bg: #1e1e1e; --surface: #2a2a2a; --border: #444; --divider: #333;
+    --text: #eee; --text-muted: #a8a8a8; --mono: #9ab; --accent: #3a5ccc; --accent-text: #8fa7ff;
+    --success: #6fcf8f; --error: #ff8a8a;
+  }
+  body { width: 320px; margin: 0; padding: 14px 16px 12px; background: var(--bg); color: var(--text);
+    font: 13px/1.45 system-ui, sans-serif; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  h2 { font-size: 11px; margin: 0 0 8px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .05em; }
+  section { border-top: 1px solid var(--divider); padding: 12px 0; }
+  section:last-of-type { padding-bottom: 0; }
+  .version { font-size: 11px; color: var(--text-muted); }
+  .caption { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
+  .caption.error { color: var(--error); }
+  .empty { font-size: 12px; color: var(--text-muted); }
+
+  :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+  .setting-title { font-weight: 500; }
+  .switch { appearance: none; flex-shrink: 0; position: relative; width: 34px; height: 20px; margin: 0;
+    border-radius: 10px; background: var(--border); cursor: pointer; transition: background .15s; }
+  .switch::before { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch:checked { background: var(--accent); }
+  .switch:checked::before { transform: translateX(14px); }
+
+  #shortcutBtn { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 34px; padding: 6px 8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+    font: inherit; cursor: pointer; transition: border-color .15s; }
+  #shortcutBtn:hover { border-color: #666; }
+  #shortcutBtn.recording { border-color: var(--accent); color: var(--accent-text); }
+  kbd { padding: 1px 6px; background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; font: 12px ui-monospace, monospace; }
+  .plus { color: var(--text-muted); font-size: 11px; }
+  .caption-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .link { padding: 0; background: none; border: none; color: var(--accent-text); font: inherit; font-size: 11.5px;
+    cursor: pointer; white-space: nowrap; }
+  .link:hover { text-decoration: underline; }
+
+  .origin { display: inline-block; max-width: 100%; margin-bottom: 8px; padding: 2px 6px; background: var(--surface);
+    border-radius: 4px; font: 11.5px ui-monospace, monospace; color: var(--mono); overflow-wrap: anywhere; }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .row label { min-width: 90px; font: 12px ui-monospace, monospace; color: var(--mono); }
+  .row input { flex: 1; min-width: 0; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; color: #fff; font: inherit; }
+  .row input:focus-visible { outline: none; border-color: var(--accent-text); }
+  .saved { width: 48px; flex-shrink: 0; font-size: 11px; color: var(--success); white-space: nowrap; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-  <h1>Navigate Easily</h1>
+  <header>
+    <h1>Navigate Easily</h1>
+    <span class="version" id="version"></span>
+  </header>
 
-  <div class="toggle">
-    <input type="checkbox" id="autoDiscover">
-    <label for="autoDiscover">Auto-discover routes</label>
-  </div>
-  <div class="caption">Applies to all sites. When off, the palette shows only routes you've visited.</div>
+  <section>
+    <label class="setting" for="autoDiscover">
+      <span>
+        <span class="setting-title">Auto-discover routes</span>
+        <span class="caption">Applies to all sites. When off, the palette shows only pages you've visited.</span>
+      </span>
+      <input type="checkbox" role="switch" class="switch" id="autoDiscover">
+    </label>
+  </section>
 
-  <div class="shortcut">
-    <h2>Open shortcut</h2>
-    <button id="shortcutBtn" type="button"></button>
-    <div class="caption">Click, then press the key combo. Opens the route palette on any site.</div>
-    <span id="resetShortcut">Reset to default (Ctrl / ⌘ + K)</span>
-  </div>
+  <section>
+    <h2 id="shortcutHeading">Open shortcut</h2>
+    <button id="shortcutBtn" type="button" aria-labelledby="shortcutHeading shortcutBtn"
+      aria-describedby="shortcutHelp"></button>
+    <div class="caption-row">
+      <span class="caption" id="shortcutHelp" aria-live="polite"></span>
+      <button id="resetShortcut" type="button" class="link" hidden>Reset to default</button>
+    </div>
+  </section>
 
-  <div class="section" id="paramsSection">
+  <section id="paramsSection">
     <h2>Route params</h2>
-    <div class="origin" id="origin"></div>
     <div id="content"></div>
-  </div>
+  </section>
 
   <script src="popup.js"></script>
 </body>
